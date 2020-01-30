@@ -1,8 +1,8 @@
 var grpc = require('grpc');
-const Service = require('./calcpb/calc_grpc_pb');
+const services = require('./calcpb/calc_grpc_pb');
 const messages = require('./calcpb/calc_pb');
 
-var client = new Service.CalculatorClient('localhost:50050', grpc.credentials.createInsecure());
+var client = new services.CalculatorClient('localhost:50050', grpc.credentials.createInsecure());
 
 const request = new messages.Request();
 request.setN1(10);

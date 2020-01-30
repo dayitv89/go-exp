@@ -1,5 +1,5 @@
 var grpc = require('grpc');
-const Service = require('./calcpb/calc_grpc_pb');
+const services = require('./calcpb/calc_grpc_pb');
 const messages = require('./calcpb/calc_pb');
 
 function sum(call, callback) {
@@ -14,6 +14,6 @@ function subtract(call, callback) {
 }
 
 var server = new grpc.Server();
-server.addService(Service.CalculatorService, { sum, subtract });
+server.addService(services.CalculatorService, { sum, subtract });
 server.bind('0.0.0.0:50050', grpc.ServerCredentials.createInsecure());
 server.start();
