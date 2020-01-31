@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 
 	pb "github.com/dayitv89/go-exp/grpc-exp/calc/calcpb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 type server struct{}
@@ -26,6 +28,8 @@ func main() {
 	}
 	s := grpc.NewServer()
 	pb.RegisterCalculatorServer(s, &server{})
+	fmt.Println("register for evans the reflection")
+	reflection.Register(s)
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
