@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"time"
 
 	pb "github.com/dayitv89/go-exp/grpc-exp/calc/calcpb"
+	"github.com/gin-gonic/gin"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -23,102 +27,124 @@ func (*grpcController) Subtract(ctx context.Context, req *pb.Request) (*pb.Respo
 	return &pb.Response{Result: req.GetN1() - req.GetN2()}, nil
 }
 
+const grpcPort string = ":50051"
+
 func grpcServer() {
-	lis, err := net.Listen("tcp", ":50050")
+	lis, err := net.Listen("tcp", grpcPort)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
 	s := grpc.NewServer()
 	pb.RegisterCalculatorServer(s, &grpcController{})
-	fmt.Println("register for evans the reflection")
 	reflection.Register(s)
+	fmt.Println("grpc server is running on", grpcPort)
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
+	fmt.Println("grpc server closed from", grpcPort)
 }
 
 func main() {
 	go grpcServer()
-	if err := webServerMux(); err != nil {
+	go webServerMux()
+
+	if err := webServerGin(); err != nil {
 		fmt.Println("webServerMux error", err)
 	}
 }
 
-// type AppController struct{}
+//GRPCResponseHandler hijeck the response body
+type GRPCResponseHandler struct {
+	gin.ResponseWriter
+	body       []byte
+	statusCode int
+}
 
-// func (ctrl *AppController) Ping(c *gin.Context) {
-// 	msg := fmt.Sprintf("ping at the server: %d", time.Now().Unix())
-// 	c.JSON(http.StatusOK, gin.H{"message": msg})
-// }
+//NewGRPCResponseHandler get new instance for each request
+func NewGRPCResponseHandler(w gin.ResponseWriter) *GRPCResponseHandler {
+	return &GRPCResponseHandler{w, []byte{}, http.StatusOK}
+}
 
-// func (ctrl *AppController) Sum(c *gin.Context) {
-// 	msg := fmt.Sprintf("ping at the server: %d", time.Now().Unix())
-// 	c.JSON(http.StatusOK, gin.H{"message": msg})
-// }
+//Write stop the data flush and pushing to the client as we need to override the body at the end from grpc response.
+func (grh *GRPCResponseHandler) Write(data []byte) (int, error) {
+	grh.body = append(grh.body, data...)
+	return 0, nil
+}
 
-// func setupRoutes(r *gin.Engine) {
-// 	// setup global middlewares
-// 	r.Use(APIAuth())
+//WriteHeader Holds the statusCode
+func (grh *GRPCResponseHandler) WriteHeader(code int) {
+	grh.statusCode = code
+	grh.ResponseWriter.WriteHeader(code)
+}
 
-// 	appCtrl := new(AppController)
+func webServerGin() error {
+	r := gin.Default()
+	http.DefaultClient.Timeout = 30 * time.Second
 
-// 	r.GET("/ping", appCtrl.Ping)
-// 	r.GET("/sum", appCtrl.Sum)
-// 	r.POST("/sum", appCtrl.Sum)
-// }
+	// setup global middlewares
+	r.Use(func(c *gin.Context) {
+		c.Next()
+		fmt.Println("CUSTOM LOG:\nRequest:", c.Request, "\nResponse:", c.Writer.Status())
+	})
 
-// //IsJSONContent ...
-// func IsJSONContent(c *gin.Context) bool {
-// 	val, ok := c.Request.Header["Content-Type"]
-// 	return ok && strings.Contains(val[0], "application/json")
-// }
+	r.GET("/ping", func(c *gin.Context) {
+		msg := fmt.Sprintf("ping at the server: %d", time.Now().Unix())
+		c.JSON(http.StatusOK, gin.H{"message": msg})
+	})
 
-// //IsJSONRespond ...
-// func IsJSONRespond(c *gin.Context) bool {
-// 	if val, ok := c.Request.Header["Accept"]; ok {
-// 		return strings.Contains(val[0], "application/json")
-// 	}
-// 	return IsJSONContent(c)
-// }
-
-// //APIAuth ...
-// func APIAuth() func(c *gin.Context) {
-// 	return func(c *gin.Context) {
-// 		if IsJSONRespond(c) {
-// 			c.Next()
-// 		} else {
-// 			c.JSON(http.StatusForbidden, gin.H{"message": "Invalid access to perform this action"})
-// 			c.Abort()
-// 		}
-// 	}
-// }
-
-// func webServer() {
-// 	r := gin.Default()
-// 	http.DefaultClient.Timeout = 30 * time.Second
-// 	setupRoutes(r)
-
-// 	os.Setenv("PORT", "3002")
-// 	fmt.Printf("\n\nRunning SERVER on port :%s and GIN_MODE=%s\n\n", os.Getenv("PORT"), os.Getenv("GIN_MODE"))
-// 	r.Run(":3002" + os.Getenv("PORT"))
-// 	return
-// }
-
-func webServerMux() error {
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
+	mux, cancel, err := setupMux()
 	defer cancel()
-
-	// Register gRPC server endpoint
-	// Note: Make sure the gRPC server is running properly and accessible
-	mux := runtime.NewServeMux()
-	opts := []grpc.DialOption{grpc.WithInsecure()}
-	err := pb.RegisterCalculatorHandlerFromEndpoint(ctx, mux, "localhost:50050", opts)
 	if err != nil {
 		return err
 	}
+	r.Any("/grpc/*path", func(c *gin.Context) {
+		path := c.Param("path")
+		c.Status(http.StatusOK)
 
-	// Start HTTP server (and proxy calls to gRPC server endpoint)
-	return http.ListenAndServe(":3002", mux)
+		c.Request.URL.Path = path
+		fmt.Println("\ngin mux grpc request", c.Request.URL)
+		grpcResponse := NewGRPCResponseHandler(c.Writer)
+		mux.ServeHTTP(grpcResponse, c.Request)
+
+		var jsonS interface{}
+		c.Header("Content-Type", "application/json")
+		if err := json.Unmarshal(grpcResponse.body, &jsonS); err != nil {
+			c.JSON(grpcResponse.statusCode, gin.H{
+				"code":         grpcResponse.statusCode,
+				"error":        "cannot convert to json string, use status code or grpc_res to find the issue.",
+				"error_detail": err.Error(),
+				"grpc_res":     string(grpcResponse.body),
+			})
+		} else {
+			c.JSON(grpcResponse.statusCode, gin.H{"code": grpcResponse.statusCode, "grpc_res": jsonS})
+		}
+	})
+
+	r.NoRoute(func(c *gin.Context) {
+		c.JSON(http.StatusNotFound, gin.H{"code": http.StatusNotFound, "error": "route not available"})
+	})
+
+	os.Setenv("PORT", "3000")
+	fmt.Printf("\n\nRunning SERVER on port :%s and GIN_MODE=%s\n\n", os.Getenv("PORT"), os.Getenv("GIN_MODE"))
+
+	return r.Run(":" + os.Getenv("PORT"))
+}
+
+func setupMux() (*runtime.ServeMux, context.CancelFunc, error) {
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	mux := runtime.NewServeMux()
+	opts := []grpc.DialOption{grpc.WithInsecure()}
+	err := pb.RegisterCalculatorHandlerFromEndpoint(ctx, mux, "127.0.0.1"+grpcPort, opts)
+	return mux, cancel, err
+}
+
+func webServerMux() error {
+	mux, cancel, err := setupMux()
+	defer cancel()
+	if err != nil {
+		return err
+	}
+	return http.ListenAndServe(":3001", mux)
 }

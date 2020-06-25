@@ -21,5 +21,10 @@ service Calculator {
 			get: "/sum"
 		};
 	};
-	rpc Subtract(Request) returns(Response) {};
+	rpc Subtract(Request) returns(Response) {
+		option (google.api.http) = {
+			post: "/subtract"
+			body: "*"
+		};
+	};
 }

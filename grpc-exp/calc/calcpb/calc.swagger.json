@@ -11,6 +11,38 @@
     "application/json"
   ],
   "paths": {
+    "/subtract": {
+      "post": {
+        "operationId": "Calculator_Subtract",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/calcpbResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/calcpbRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Calculator"
+        ]
+      }
+    },
     "/sum": {
       "get": {
         "operationId": "Calculator_Sum",
@@ -51,6 +83,19 @@
     }
   },
   "definitions": {
+    "calcpbRequest": {
+      "type": "object",
+      "properties": {
+        "n1": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "n2": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
     "calcpbResponse": {
       "type": "object",
       "properties": {
