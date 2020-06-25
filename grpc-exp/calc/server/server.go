@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	pb "github.com/dayitv89/go-exp/grpc-exp/calc/calcpb"
+	pb "github.com/dayitv89/go-exp/grpc-exp/calc/gen/calcpb"
 	"github.com/gin-gonic/gin"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"google.golang.org/grpc"
@@ -27,7 +27,7 @@ func (*grpcController) Subtract(ctx context.Context, req *pb.Request) (*pb.Respo
 	return &pb.Response{Result: req.GetN1() - req.GetN2()}, nil
 }
 
-const grpcPort string = ":50051"
+const grpcPort string = ":50050"
 
 func grpcServer() {
 	lis, err := net.Listen("tcp", grpcPort)
